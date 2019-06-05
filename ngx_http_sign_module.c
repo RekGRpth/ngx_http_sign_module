@@ -1,0 +1,199 @@
+#include <ngx_config.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
+#include <nginx.h>
+
+typedef struct {
+    ngx_flag_t session_reuse;
+    ngx_uint_t protocols;
+    ngx_str_t ciphers;
+    ngx_str_t certificate;
+    ngx_str_t certificate_key;
+    ngx_array_t *password;
+    ngx_ssl_t *ssl;
+} ngx_http_sign_loc_conf_t;
+
+ngx_module_t ngx_http_sign_module;
+
+static void *ngx_http_sign_create_loc_conf(ngx_conf_t *cf) {
+    ngx_http_sign_loc_conf_t *conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_sign_loc_conf_t));
+    if (!conf) return NULL;
+    conf->session_reuse = NGX_CONF_UNSET;
+    conf->password = NGX_CONF_UNSET_PTR;
+    return conf;
+}
+
+static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t *sign) {
+    sign->ssl = ngx_pcalloc(cf->pool, sizeof(ngx_ssl_t));
+    if (!sign->ssl) return NGX_ERROR;
+    sign->ssl->log = cf->log;
+    if (ngx_ssl_create(sign->ssl, sign->protocols, NULL) != NGX_OK) return NGX_ERROR;
+    ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (!cln) { ngx_ssl_cleanup_ctx(sign->ssl); return NGX_ERROR; }
+    cln->handler = ngx_ssl_cleanup_ctx;
+    cln->data = sign->ssl;
+    if (sign->certificate.len) {
+        if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
+        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password) != NGX_OK) return NGX_ERROR;
+    }
+    if (ngx_ssl_ciphers(cf, sign->ssl, &sign->ciphers, 0) != NGX_OK) return NGX_ERROR;
+    if (ngx_ssl_client_session_cache(cf, sign->ssl, sign->session_reuse) != NGX_OK) return NGX_ERROR;
+    return NGX_OK;
+}
+
+static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
+    ngx_http_sign_loc_conf_t *prev = parent;
+    ngx_http_sign_loc_conf_t *conf = child;
+    ngx_conf_merge_value(conf->session_reuse, prev->session_reuse, 1);
+    ngx_conf_merge_bitmask_value(conf->protocols, prev->protocols, (NGX_CONF_BITMASK_SET|NGX_SSL_TLSv1|NGX_SSL_TLSv1_1|NGX_SSL_TLSv1_2));
+    ngx_conf_merge_str_value(conf->ciphers, prev->ciphers, "DEFAULT");
+    ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
+    ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
+    ngx_conf_merge_ptr_value(conf->password, prev->password, NULL);
+    if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) return NGX_CONF_ERROR;
+    return NGX_CONF_OK;
+}
+
+static char *ngx_http_sign_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+    ngx_http_sign_loc_conf_t *sign = conf;
+    if (sign->password != NGX_CONF_UNSET_PTR) return "is duplicate";
+    ngx_str_t *value = cf->args->elts;
+    sign->password = ngx_ssl_read_password_file(cf, &value[1]);
+    if (!sign->password) return NGX_CONF_ERROR;
+    return NGX_CONF_OK;
+}
+
+static ngx_int_t ngx_http_sign_var(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+    v->not_found = 1;
+    ngx_http_sign_loc_conf_t *sign = ngx_http_get_module_loc_conf(r, ngx_http_sign_module);
+    if (!sign->ssl) return NGX_OK;
+    ngx_http_complex_value_t *cv = (ngx_http_complex_value_t *)data;
+    ngx_str_t val;
+    if (ngx_http_complex_value(r, cv, &val) != NGX_OK) return NGX_OK;
+    BIO *in = BIO_new_mem_buf(val.data, val.len);
+    if (!in) return NGX_OK;
+    PKCS7 *p7 = NULL;
+    BIO *out = BIO_new(BIO_s_mem());
+    if (!out) goto ret;
+    X509 *signcert = SSL_CTX_get0_certificate(sign->ssl->ctx);
+    EVP_PKEY *pkey = SSL_CTX_get0_privatekey(sign->ssl->ctx);
+    if (!(p7 = PKCS7_sign(signcert, pkey, NULL, in, PKCS7_BINARY|PKCS7_DETACHED))) goto ret;
+    if (!i2d_PKCS7_bio(out, p7)) goto ret;
+    char *str;
+    long len = BIO_get_mem_data(out, &str);
+    ngx_str_t s = {ngx_base64_encoded_length(len), ngx_pcalloc(r->pool, ngx_base64_encoded_length(len))};
+    ngx_encode_base64(&s, &((ngx_str_t){len, (u_char *)str}));
+    v->data = s.data;
+    v->len = s.len;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+ret:
+    if (p7) PKCS7_free(p7);
+    if (in) BIO_free(in);
+    if (out) BIO_free(out);
+    return NGX_OK;
+}
+
+static char *ngx_http_sign_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+    ngx_str_t *value = cf->args->elts;
+    if (value[1].data[0] != '$') { ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid variable name \"%V\"", &value[1]); return NGX_CONF_ERROR; }
+    value[1].len--;
+    value[1].data++;
+    ngx_http_variable_t *v = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_CHANGEABLE);
+    if (!v) { return NGX_CONF_ERROR; }
+    ngx_int_t index = ngx_http_get_variable_index(cf, &value[1]);
+    if (index == NGX_ERROR) { return NGX_CONF_ERROR; }
+    v->get_handler = ngx_http_sign_var;
+    ngx_http_complex_value_t *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+    if (!cv) return NGX_CONF_ERROR;
+    ngx_http_compile_complex_value_t ccv = {cf, &value[2], cv, 0, 0, 0};
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) return NGX_CONF_ERROR;
+    v->data = (uintptr_t)cv;
+    return NGX_CONF_OK;
+}
+
+static ngx_conf_bitmask_t ngx_http_sign_protocols[] = {
+    { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
+    { ngx_string("SSLv3"), NGX_SSL_SSLv3 },
+    { ngx_string("TLSv1"), NGX_SSL_TLSv1 },
+    { ngx_string("TLSv1.1"), NGX_SSL_TLSv1_1 },
+    { ngx_string("TLSv1.2"), NGX_SSL_TLSv1_2 },
+    { ngx_string("TLSv1.3"), NGX_SSL_TLSv1_3 },
+    { ngx_null_string, 0 }
+};
+
+static ngx_command_t ngx_http_sign_commands[] = {
+  { ngx_string("sign_session_reuse"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_sign_loc_conf_t, session_reuse),
+    NULL },
+  { ngx_string("sign_protocols"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_1MORE,
+    ngx_conf_set_bitmask_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_sign_loc_conf_t, protocols),
+    &ngx_http_sign_protocols },
+  { ngx_string("sign_ciphers"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_sign_loc_conf_t, ciphers),
+    NULL },
+  { ngx_string("sign_certificate"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_sign_loc_conf_t, certificate),
+    NULL },
+  { ngx_string("sign_certificate_key"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_sign_loc_conf_t, certificate_key),
+    NULL },
+  { ngx_string("sign_password_file"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_http_sign_ssl_password_file,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL },
+  { ngx_string("sign_set"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+    ngx_http_sign_set,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL },
+    ngx_null_command
+};
+
+static ngx_http_module_t ngx_http_sign_module_ctx = {
+    NULL,                          /* preconfiguration */
+    NULL,                          /* postconfiguration */
+
+    NULL,                          /* create main configuration */
+    NULL,                          /* init main configuration */
+
+    NULL,                          /* create server configuration */
+    NULL,                          /* merge server configuration */
+
+    ngx_http_sign_create_loc_conf, /* create location configuration */
+    ngx_http_sign_merge_loc_conf   /* merge location configuration */
+};
+
+ngx_module_t ngx_http_sign_module = {
+    NGX_MODULE_V1,
+    &ngx_http_sign_module_ctx, /* module context */
+    ngx_http_sign_commands,    /* module directives */
+    NGX_HTTP_MODULE,           /* module type */
+    NULL,                      /* init master */
+    NULL,                      /* init module */
+    NULL,                      /* init process */
+    NULL,                      /* init thread */
+    NULL,                      /* exit thread */
+    NULL,                      /* exit process */
+    NULL,                      /* exit master */
+    NGX_MODULE_V1_PADDING
+};
