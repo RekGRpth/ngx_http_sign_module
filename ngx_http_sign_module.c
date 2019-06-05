@@ -5,7 +5,6 @@
 
 typedef struct {
     ngx_flag_t session_reuse;
-    ngx_str_t ciphers;
     ngx_str_t certificate;
     ngx_str_t certificate_key;
     ngx_array_t *password;
@@ -35,7 +34,6 @@ static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t 
         if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
         if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password) != NGX_OK) return NGX_ERROR;
     }
-    if (ngx_ssl_ciphers(cf, sign->ssl, &sign->ciphers, 0) != NGX_OK) return NGX_ERROR;
     if (ngx_ssl_client_session_cache(cf, sign->ssl, sign->session_reuse) != NGX_OK) return NGX_ERROR;
     return NGX_OK;
 }
@@ -44,7 +42,6 @@ static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *ch
     ngx_http_sign_loc_conf_t *prev = parent;
     ngx_http_sign_loc_conf_t *conf = child;
     ngx_conf_merge_value(conf->session_reuse, prev->session_reuse, 1);
-    ngx_conf_merge_str_value(conf->ciphers, prev->ciphers, "DEFAULT");
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
     ngx_conf_merge_ptr_value(conf->password, prev->password, NULL);
@@ -117,12 +114,6 @@ static ngx_command_t ngx_http_sign_commands[] = {
     ngx_conf_set_flag_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_sign_loc_conf_t, session_reuse),
-    NULL },
-  { ngx_string("sign_ciphers"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_sign_loc_conf_t, ciphers),
     NULL },
   { ngx_string("sign_certificate"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
