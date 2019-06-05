@@ -74,11 +74,11 @@ static ngx_int_t ngx_http_sign_var(ngx_http_request_t *r, ngx_http_variable_valu
     ngx_http_complex_value_t *cv = (ngx_http_complex_value_t *)data;
     ngx_str_t value;
     if (ngx_http_complex_value(r, cv, &value) != NGX_OK) return NGX_OK;
+    u_char *str = NULL;
     BIO *in = BIO_new_mem_buf(value.data, value.len);
     if (!in) return NGX_OK;
     PKCS7 *p7 = PKCS7_sign(signcert, pkey, NULL, in, PKCS7_BINARY|PKCS7_DETACHED);
     if (!p7) goto ret;
-    u_char *str = NULL;
     int len = ASN1_item_i2d((ASN1_VALUE *)p7, &str, ASN1_ITEM_rptr(PKCS7));
     if (len <= 0) goto ret;
     ngx_str_t var = {ngx_base64_encoded_length(len), ngx_pcalloc(r->pool, ngx_base64_encoded_length(len))};
@@ -91,6 +91,7 @@ static ngx_int_t ngx_http_sign_var(ngx_http_request_t *r, ngx_http_variable_valu
 ret:
     if (p7) PKCS7_free(p7);
     if (in) BIO_free(in);
+    if (str) free(str);
     return NGX_OK;
 }
 
