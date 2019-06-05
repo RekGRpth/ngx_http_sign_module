@@ -5,7 +5,6 @@
 
 typedef struct {
     ngx_flag_t session_reuse;
-    ngx_uint_t protocols;
     ngx_str_t ciphers;
     ngx_str_t certificate;
     ngx_str_t certificate_key;
@@ -27,7 +26,7 @@ static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t 
     sign->ssl = ngx_pcalloc(cf->pool, sizeof(ngx_ssl_t));
     if (!sign->ssl) return NGX_ERROR;
     sign->ssl->log = cf->log;
-    if (ngx_ssl_create(sign->ssl, sign->protocols, NULL) != NGX_OK) return NGX_ERROR;
+    if (ngx_ssl_create(sign->ssl, 0, NULL) != NGX_OK) return NGX_ERROR;
     ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (!cln) { ngx_ssl_cleanup_ctx(sign->ssl); return NGX_ERROR; }
     cln->handler = ngx_ssl_cleanup_ctx;
@@ -45,7 +44,6 @@ static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *ch
     ngx_http_sign_loc_conf_t *prev = parent;
     ngx_http_sign_loc_conf_t *conf = child;
     ngx_conf_merge_value(conf->session_reuse, prev->session_reuse, 1);
-    ngx_conf_merge_bitmask_value(conf->protocols, prev->protocols, (NGX_CONF_BITMASK_SET|NGX_SSL_TLSv1|NGX_SSL_TLSv1_1|NGX_SSL_TLSv1_2));
     ngx_conf_merge_str_value(conf->ciphers, prev->ciphers, "DEFAULT");
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
@@ -113,16 +111,6 @@ static char *ngx_http_sign_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     return NGX_CONF_OK;
 }
 
-static ngx_conf_bitmask_t ngx_http_sign_protocols[] = {
-    { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
-    { ngx_string("SSLv3"), NGX_SSL_SSLv3 },
-    { ngx_string("TLSv1"), NGX_SSL_TLSv1 },
-    { ngx_string("TLSv1.1"), NGX_SSL_TLSv1_1 },
-    { ngx_string("TLSv1.2"), NGX_SSL_TLSv1_2 },
-    { ngx_string("TLSv1.3"), NGX_SSL_TLSv1_3 },
-    { ngx_null_string, 0 }
-};
-
 static ngx_command_t ngx_http_sign_commands[] = {
   { ngx_string("sign_session_reuse"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
@@ -130,12 +118,6 @@ static ngx_command_t ngx_http_sign_commands[] = {
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_sign_loc_conf_t, session_reuse),
     NULL },
-  { ngx_string("sign_protocols"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_1MORE,
-    ngx_conf_set_bitmask_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_sign_loc_conf_t, protocols),
-    &ngx_http_sign_protocols },
   { ngx_string("sign_ciphers"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
