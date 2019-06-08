@@ -22,4 +22,4 @@ Sets sign certificate password file.<hr>
     Default: ——
     Context: http, server, location
 
-Sets variable to signed complex_value.<hr>
+Sets variable to signed complex_value.
