@@ -93,8 +93,6 @@ static char *ngx_http_sign_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     value[1].data++;
     ngx_http_variable_t *v = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_CHANGEABLE);
     if (!v) { return NGX_CONF_ERROR; }
-    ngx_int_t index = ngx_http_get_variable_index(cf, &value[1]);
-    if (index == NGX_ERROR) { return NGX_CONF_ERROR; }
     v->get_handler = ngx_http_sign_var;
     ngx_http_complex_value_t *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
     if (!cv) return NGX_CONF_ERROR;
