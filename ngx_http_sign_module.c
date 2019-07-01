@@ -12,39 +12,6 @@ typedef struct {
 
 ngx_module_t ngx_http_sign_module;
 
-static void *ngx_http_sign_create_loc_conf(ngx_conf_t *cf) {
-    ngx_http_sign_loc_conf_t *conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_sign_loc_conf_t));
-    if (!conf) return NULL;
-    conf->password = NGX_CONF_UNSET_PTR;
-    return conf;
-}
-
-static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t *sign) {
-    sign->ssl = ngx_pcalloc(cf->pool, sizeof(ngx_ssl_t));
-    if (!sign->ssl) return NGX_ERROR;
-    sign->ssl->log = cf->log;
-    if (ngx_ssl_create(sign->ssl, 0, NULL) != NGX_OK) return NGX_ERROR;
-    ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
-    if (!cln) { ngx_ssl_cleanup_ctx(sign->ssl); return NGX_ERROR; }
-    cln->handler = ngx_ssl_cleanup_ctx;
-    cln->data = sign->ssl;
-    if (sign->certificate.len) {
-        if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
-        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password) != NGX_OK) return NGX_ERROR;
-    }
-    return NGX_OK;
-}
-
-static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
-    ngx_http_sign_loc_conf_t *prev = parent;
-    ngx_http_sign_loc_conf_t *conf = child;
-    ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
-    ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
-    ngx_conf_merge_ptr_value(conf->password, prev->password, NULL);
-    if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) return NGX_CONF_ERROR;
-    return NGX_CONF_OK;
-}
-
 static char *ngx_http_sign_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_http_sign_loc_conf_t *sign = conf;
     if (sign->password != NGX_CONF_UNSET_PTR) return "is duplicate";
@@ -103,58 +70,88 @@ static char *ngx_http_sign_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 }
 
 static ngx_command_t ngx_http_sign_commands[] = {
-  { ngx_string("sign_certificate"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_sign_loc_conf_t, certificate),
-    NULL },
-  { ngx_string("sign_certificate_key"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_sign_loc_conf_t, certificate_key),
-    NULL },
-  { ngx_string("sign_password_file"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_http_sign_ssl_password_file,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    0,
-    NULL },
-  { ngx_string("sign_set"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
-    ngx_http_sign_set,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    0,
-    NULL },
+  { .name = ngx_string("sign_certificate"),
+    .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    .set = ngx_conf_set_str_slot,
+    .conf = NGX_HTTP_LOC_CONF_OFFSET,
+    .offset = offsetof(ngx_http_sign_loc_conf_t, certificate),
+    .post = NULL },
+  { .name = ngx_string("sign_certificate_key"),
+    .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    .set = ngx_conf_set_str_slot,
+    .conf = NGX_HTTP_LOC_CONF_OFFSET,
+    .offset = offsetof(ngx_http_sign_loc_conf_t, certificate_key),
+    .post = NULL },
+  { .name = ngx_string("sign_password_file"),
+    .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    .set = ngx_http_sign_ssl_password_file,
+    .conf = NGX_HTTP_LOC_CONF_OFFSET,
+    .offset = 0,
+    .post = NULL },
+  { .name = ngx_string("sign_set"),
+    .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+    .set = ngx_http_sign_set,
+    .conf = NGX_HTTP_LOC_CONF_OFFSET,
+    .offset = 0,
+    .post = NULL },
     ngx_null_command
 };
 
+static void *ngx_http_sign_create_loc_conf(ngx_conf_t *cf) {
+    ngx_http_sign_loc_conf_t *conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_sign_loc_conf_t));
+    if (!conf) return NULL;
+    conf->password = NGX_CONF_UNSET_PTR;
+    return conf;
+}
+
+static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t *sign) {
+    sign->ssl = ngx_pcalloc(cf->pool, sizeof(ngx_ssl_t));
+    if (!sign->ssl) return NGX_ERROR;
+    sign->ssl->log = cf->log;
+    if (ngx_ssl_create(sign->ssl, 0, NULL) != NGX_OK) return NGX_ERROR;
+    ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (!cln) { ngx_ssl_cleanup_ctx(sign->ssl); return NGX_ERROR; }
+    cln->handler = ngx_ssl_cleanup_ctx;
+    cln->data = sign->ssl;
+    if (sign->certificate.len) {
+        if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
+        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password) != NGX_OK) return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
+static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
+    ngx_http_sign_loc_conf_t *prev = parent;
+    ngx_http_sign_loc_conf_t *conf = child;
+    ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
+    ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
+    ngx_conf_merge_ptr_value(conf->password, prev->password, NULL);
+    if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) return NGX_CONF_ERROR;
+    return NGX_CONF_OK;
+}
+
 static ngx_http_module_t ngx_http_sign_module_ctx = {
-    NULL,                          /* preconfiguration */
-    NULL,                          /* postconfiguration */
-
-    NULL,                          /* create main configuration */
-    NULL,                          /* init main configuration */
-
-    NULL,                          /* create server configuration */
-    NULL,                          /* merge server configuration */
-
-    ngx_http_sign_create_loc_conf, /* create location configuration */
-    ngx_http_sign_merge_loc_conf   /* merge location configuration */
+    .preconfiguration = NULL,
+    .postconfiguration = NULL,
+    .create_main_conf = NULL,
+    .init_main_conf = NULL,
+    .create_srv_conf = NULL,
+    .merge_srv_conf = NULL,
+    .create_loc_conf = ngx_http_sign_create_loc_conf,
+    .merge_loc_conf = ngx_http_sign_merge_loc_conf
 };
 
 ngx_module_t ngx_http_sign_module = {
     NGX_MODULE_V1,
-    &ngx_http_sign_module_ctx, /* module context */
-    ngx_http_sign_commands,    /* module directives */
-    NGX_HTTP_MODULE,           /* module type */
-    NULL,                      /* init master */
-    NULL,                      /* init module */
-    NULL,                      /* init process */
-    NULL,                      /* init thread */
-    NULL,                      /* exit thread */
-    NULL,                      /* exit process */
-    NULL,                      /* exit master */
+    .ctx = &ngx_http_sign_module_ctx,
+    .commands = ngx_http_sign_commands,
+    .type = NGX_HTTP_MODULE,
+    .init_master = NULL,
+    .init_module = NULL,
+    .init_process = NULL,
+    .init_thread = NULL,
+    .exit_thread = NULL,
+    .exit_process = NULL,
+    .exit_master = NULL,
     NGX_MODULE_V1_PADDING
 };
