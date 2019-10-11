@@ -89,7 +89,7 @@ static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t 
     cln->data = sign->ssl;
     if (sign->certificate.len) {
         if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
-        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_certificate != NGX_OK"); return NGX_ERROR; }
+        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password == NGX_CONF_UNSET_PTR ? NULL : sign->password) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_certificate != NGX_OK"); return NGX_ERROR; }
     }
     return NGX_OK;
 }
