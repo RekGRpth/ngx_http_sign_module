@@ -99,7 +99,7 @@ static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *ch
     ngx_http_sign_loc_conf_t *conf = child;
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
-    ngx_conf_merge_ptr_value(conf->password, prev->password, NULL);
+    ngx_conf_merge_ptr_value(conf->password, prev->password, NGX_CONF_UNSET_PTR);
     if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_http_sign_set_ssl != NGX_OK"); return NGX_CONF_ERROR; }
     return NGX_CONF_OK;
 }
