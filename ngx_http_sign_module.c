@@ -13,7 +13,7 @@ static char *ngx_http_sign_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_http_sign_loc_conf_t *sign = conf;
     if (sign->password != NGX_CONF_UNSET_PTR) return "is duplicate";
     ngx_str_t *elts = cf->args->elts;
-    if (!(sign->password = ngx_ssl_read_password_file(cf, &elts[1]))) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_ssl_read_password_file"); return NGX_CONF_ERROR; }
+    if (!(sign->password = ngx_ssl_read_password_file(cf, &elts[1]))) return "!ngx_ssl_read_password_file";
     return NGX_CONF_OK;
 }
 
@@ -100,11 +100,11 @@ static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *ch
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
     ngx_conf_merge_ptr_value(conf->password, prev->password, NGX_CONF_UNSET_PTR);
-    if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_http_sign_set_ssl != NGX_OK"); return NGX_CONF_ERROR; }
+    if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) return "ngx_http_sign_set_ssl != NGX_OK";
     return NGX_CONF_OK;
 }
 
-static ngx_http_module_t ngx_http_sign_module_ctx = {
+static ngx_http_module_t ngx_http_sign_ctx = {
     .preconfiguration = NULL,
     .postconfiguration = NULL,
     .create_main_conf = NULL,
@@ -117,7 +117,7 @@ static ngx_http_module_t ngx_http_sign_module_ctx = {
 
 ngx_module_t ngx_http_sign_module = {
     NGX_MODULE_V1,
-    .ctx = &ngx_http_sign_module_ctx,
+    .ctx = &ngx_http_sign_ctx,
     .commands = ngx_http_sign_commands,
     .type = NGX_HTTP_MODULE,
     .init_master = NULL,
