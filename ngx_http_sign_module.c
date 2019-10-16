@@ -1,4 +1,4 @@
-#include "ndk_set_var.h"
+#include <ngx_http.h>
 
 typedef struct {
     ngx_str_t certificate;
