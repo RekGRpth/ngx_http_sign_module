@@ -5,24 +5,24 @@ typedef struct {
     ngx_str_t certificate_key;
     ngx_array_t *password;
     ngx_ssl_t *ssl;
-} ngx_http_sign_loc_conf_t;
+} ngx_http_sign_location_t;
 
 ngx_module_t ngx_http_sign_module;
 
 static char *ngx_http_sign_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-    ngx_http_sign_loc_conf_t *sign = conf;
-    if (sign->password != NGX_CONF_UNSET_PTR) return "is duplicate";
+    ngx_http_sign_location_t *location = conf;
+    if (location->password != NGX_CONF_UNSET_PTR) return "is duplicate";
     ngx_str_t *elts = cf->args->elts;
-    if (!(sign->password = ngx_ssl_read_password_file(cf, &elts[1]))) return "!ngx_ssl_read_password_file";
+    if (!(location->password = ngx_ssl_read_password_file(cf, &elts[1]))) return "!ngx_ssl_read_password_file";
     return NGX_CONF_OK;
 }
 
 static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_http_variable_value_t *v) {
-    ngx_http_sign_loc_conf_t *sign = ngx_http_get_module_loc_conf(r, ngx_http_sign_module);
-    if (!sign->ssl) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!sign->ssl"); return NGX_ERROR; }
-    X509 *signcert = SSL_CTX_get0_certificate(sign->ssl->ctx);
+    ngx_http_sign_location_t *location = ngx_http_get_module_loc_conf(r, ngx_http_sign_module);
+    if (!location->ssl) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!location->ssl"); return NGX_ERROR; }
+    X509 *signcert = SSL_CTX_get0_certificate(location->ssl->ctx);
     if (!signcert) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_ERROR; }
-    EVP_PKEY *pkey = SSL_CTX_get0_privatekey(sign->ssl->ctx);
+    EVP_PKEY *pkey = SSL_CTX_get0_privatekey(location->ssl->ctx);
     if (!pkey) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_ERROR; }
     ngx_str_t str = ngx_null_string;
     BIO *in = BIO_new_mem_buf(v->data, v->len);
@@ -49,13 +49,13 @@ static ngx_command_t ngx_http_sign_commands[] = {
     .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     .set = ngx_conf_set_str_slot,
     .conf = NGX_HTTP_LOC_CONF_OFFSET,
-    .offset = offsetof(ngx_http_sign_loc_conf_t, certificate),
+    .offset = offsetof(ngx_http_sign_location_t, certificate),
     .post = NULL },
   { .name = ngx_string("sign_certificate_key"),
     .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     .set = ngx_conf_set_str_slot,
     .conf = NGX_HTTP_LOC_CONF_OFFSET,
-    .offset = offsetof(ngx_http_sign_loc_conf_t, certificate_key),
+    .offset = offsetof(ngx_http_sign_location_t, certificate_key),
     .post = NULL },
   { .name = ngx_string("sign_password_file"),
     .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
@@ -73,30 +73,30 @@ static ngx_command_t ngx_http_sign_commands[] = {
 };
 
 static void *ngx_http_sign_create_loc_conf(ngx_conf_t *cf) {
-    ngx_http_sign_loc_conf_t *conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_sign_loc_conf_t));
-    if (!conf) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pcalloc"); return NULL; }
-    conf->password = NGX_CONF_UNSET_PTR;
-    return conf;
+    ngx_http_sign_location_t *location = ngx_pcalloc(cf->pool, sizeof(*location));
+    if (!location) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pcalloc"); return NULL; }
+    location->password = NGX_CONF_UNSET_PTR;
+    return location;
 }
 
-static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_loc_conf_t *sign) {
-    if (!(sign->ssl = ngx_pcalloc(cf->pool, sizeof(ngx_ssl_t)))) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pcalloc"); return NGX_ERROR; }
-    sign->ssl->log = cf->log;
-    if (ngx_ssl_create(sign->ssl, 0, NULL) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_create != NGX_OK"); return NGX_ERROR; }
+static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_location_t *location) {
+    if (!(location->ssl = ngx_pcalloc(cf->pool, sizeof(*location->ssl)))) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pcalloc"); return NGX_ERROR; }
+    location->ssl->log = cf->log;
+    if (ngx_ssl_create(location->ssl, 0, NULL) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_create != NGX_OK"); return NGX_ERROR; }
     ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
-    if (!cln) { ngx_ssl_cleanup_ctx(sign->ssl); ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pool_cleanup_add"); return NGX_ERROR; }
+    if (!cln) { ngx_ssl_cleanup_ctx(location->ssl); ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pool_cleanup_add"); return NGX_ERROR; }
     cln->handler = ngx_ssl_cleanup_ctx;
-    cln->data = sign->ssl;
-    if (sign->certificate.len) {
-        if (sign->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &sign->certificate); return NGX_ERROR; }
-        if (ngx_ssl_certificate(cf, sign->ssl, &sign->certificate, &sign->certificate_key, sign->password == NGX_CONF_UNSET_PTR ? NULL : sign->password) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_certificate != NGX_OK"); return NGX_ERROR; }
+    cln->data = location->ssl;
+    if (location->certificate.len) {
+        if (location->certificate_key.len == 0) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no \"sign_certificate_key\" is defined for certificate \"%V\"", &location->certificate); return NGX_ERROR; }
+        if (ngx_ssl_certificate(cf, location->ssl, &location->certificate, &location->certificate_key, location->password == NGX_CONF_UNSET_PTR ? NULL : location->password) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_certificate != NGX_OK"); return NGX_ERROR; }
     }
     return NGX_OK;
 }
 
 static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
-    ngx_http_sign_loc_conf_t *prev = parent;
-    ngx_http_sign_loc_conf_t *conf = child;
+    ngx_http_sign_location_t *prev = parent;
+    ngx_http_sign_location_t *conf = child;
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
     ngx_conf_merge_ptr_value(conf->password, prev->password, NGX_CONF_UNSET_PTR);
