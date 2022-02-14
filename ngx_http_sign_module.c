@@ -1,4 +1,4 @@
-#include <ndk_set_var.h>
+#include <ndk.h>
 #include <ngx_http.h>
 
 typedef struct {
