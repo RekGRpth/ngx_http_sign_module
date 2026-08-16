@@ -98,10 +98,11 @@ static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_location_t 
 static char *ngx_http_sign_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     ngx_http_sign_location_t *prev = parent;
     ngx_http_sign_location_t *conf = child;
+    ngx_uint_t own = conf->certificate.data || conf->certificate_key.data;
     ngx_conf_merge_str_value(conf->certificate, prev->certificate, "");
     ngx_conf_merge_str_value(conf->certificate_key, prev->certificate_key, "");
     ngx_conf_merge_ptr_value(conf->password, prev->password, NGX_CONF_UNSET_PTR);
-    if (!conf->ssl) conf->ssl = prev->ssl;
+    if (!own && !conf->ssl) conf->ssl = prev->ssl;
     if (!conf->certificate.len) return NGX_CONF_OK;
     if (conf->ssl) return NGX_CONF_OK;
     if (ngx_http_sign_set_ssl(cf, conf) != NGX_OK) return "ngx_http_sign_set_ssl != NGX_OK";
