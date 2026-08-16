@@ -85,7 +85,7 @@ static void *ngx_http_sign_create_loc_conf(ngx_conf_t *cf) {
 static ngx_int_t ngx_http_sign_set_ssl(ngx_conf_t *cf, ngx_http_sign_location_t *location) {
     if (!(location->ssl = ngx_pcalloc(cf->pool, sizeof(*location->ssl)))) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pcalloc"); return NGX_ERROR; }
     location->ssl->log = cf->log;
-    if (ngx_ssl_create(location->ssl, 0, NULL) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_create != NGX_OK"); return NGX_ERROR; }
+    if (ngx_ssl_create(location->ssl, NGX_SSL_DEFAULT_PROTOCOLS, NULL) != NGX_OK) { ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_ssl_create != NGX_OK"); return NGX_ERROR; }
     ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (!cln) { ngx_ssl_cleanup_ctx(location->ssl); ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "!ngx_pool_cleanup_add"); return NGX_ERROR; }
     cln->handler = ngx_ssl_cleanup_ctx;
