@@ -25,10 +25,12 @@ static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_h
     if (!signcert) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_ERROR; }
     EVP_PKEY *pkey = SSL_CTX_get0_privatekey(location->ssl->ctx);
     if (!pkey) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_ERROR; }
+    STACK_OF(X509) *chain = NULL;
+    if (!SSL_CTX_get0_chain_certs(location->ssl->ctx, &chain)) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_chain_certs"); return NGX_ERROR; }
     ngx_str_t str = ngx_null_string;
     BIO *in = BIO_new_mem_buf(v->data, v->len);
     if (!in) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!BIO_new_mem_buf"); return NGX_ERROR; }
-    PKCS7 *p7 = PKCS7_sign(signcert, pkey, NULL, in, PKCS7_BINARY|PKCS7_DETACHED);
+    PKCS7 *p7 = PKCS7_sign(signcert, pkey, chain, in, PKCS7_BINARY|PKCS7_DETACHED);
     ngx_int_t rc = NGX_ERROR;
     if (!p7) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!PKCS7_sign"); goto ret; }
     int len = ASN1_item_i2d((ASN1_VALUE *)p7, &str.data, ASN1_ITEM_rptr(PKCS7));
