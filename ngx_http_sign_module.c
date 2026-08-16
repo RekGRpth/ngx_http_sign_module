@@ -36,7 +36,7 @@ static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_h
     int len = ASN1_item_i2d((ASN1_VALUE *)p7, &str.data, ASN1_ITEM_rptr(PKCS7));
     if (len <= 0) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "ASN1_item_i2d <= 0"); goto ret; }
     str.len = len;
-    if (!(val->len = ngx_base64_encoded_length(str.len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_base64_encoded_length"); goto ret; }
+    val->len = ngx_base64_encoded_length(str.len);
     if (!(val->data = ngx_pnalloc(r->pool, val->len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_pnalloc"); goto ret; }
     ngx_encode_base64(val, &str);
     rc = NGX_OK;
