@@ -27,7 +27,6 @@ __DATA__
 
 === TEST 1: nested location overriding sign_certificate with its own (broken) certificate must not silently keep using the parent's already-resolved certificate
 --- main_config
-    load_module /etc/nginx/modules/ndk_http_module.so;
     load_module /etc/nginx/modules/ngx_http_sign_module.so;
 --- config
     location /outer {
@@ -46,7 +45,6 @@ GET /outer/inner
 
 === TEST 2: nested location can override sign_certificate/sign_certificate_key with its own valid pair and still sign successfully
 --- main_config
-    load_module /etc/nginx/modules/ndk_http_module.so;
     load_module /etc/nginx/modules/ngx_http_sign_module.so;
 --- config
     location /outer {
@@ -67,7 +65,6 @@ GET /outer/inner
 
 === TEST 3: nested location with no certificate of its own still inherits the parent's certificate and signs successfully (baseline, no regression)
 --- main_config
-    load_module /etc/nginx/modules/ndk_http_module.so;
     load_module /etc/nginx/modules/ngx_http_sign_module.so;
 --- config
     location /outer {

@@ -1,4 +1,3 @@
-#include <ndk.h>
 #include <ngx_http.h>
 
 typedef struct {
@@ -18,33 +17,61 @@ static char *ngx_http_sign_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd,
     return NGX_CONF_OK;
 }
 
-static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_http_variable_value_t *v) {
+static ngx_int_t ngx_http_sign_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+    ngx_http_complex_value_t *cv = (ngx_http_complex_value_t *)data;
     ngx_http_sign_location_t *location = ngx_http_get_module_loc_conf(r, ngx_http_sign_module);
-    if (!location->ssl) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!location->ssl"); return NGX_ERROR; }
+    *v = ngx_http_variable_null_value;
+    if (!location->ssl) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!location->ssl"); return NGX_OK; }
     X509 *signcert = SSL_CTX_get0_certificate(location->ssl->ctx);
-    if (!signcert) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_ERROR; }
+    if (!signcert) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_OK; }
     EVP_PKEY *pkey = SSL_CTX_get0_privatekey(location->ssl->ctx);
-    if (!pkey) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_ERROR; }
+    if (!pkey) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_OK; }
     STACK_OF(X509) *chain = NULL;
-    if (!SSL_CTX_get0_chain_certs(location->ssl->ctx, &chain)) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_chain_certs"); return NGX_ERROR; }
+    if (!SSL_CTX_get0_chain_certs(location->ssl->ctx, &chain)) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_chain_certs"); return NGX_OK; }
+    ngx_str_t text;
+    if (ngx_http_complex_value(r, cv, &text) != NGX_OK) { return NGX_OK; }
     ngx_str_t str = ngx_null_string;
-    BIO *in = BIO_new_mem_buf(v->data, v->len);
-    if (!in) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!BIO_new_mem_buf"); return NGX_ERROR; }
+    BIO *in = BIO_new_mem_buf(text.data, text.len);
+    if (!in) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!BIO_new_mem_buf"); return NGX_OK; }
     PKCS7 *p7 = PKCS7_sign(signcert, pkey, chain, in, PKCS7_BINARY|PKCS7_DETACHED);
-    ngx_int_t rc = NGX_ERROR;
     if (!p7) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!PKCS7_sign"); goto ret; }
     int len = ASN1_item_i2d((ASN1_VALUE *)p7, &str.data, ASN1_ITEM_rptr(PKCS7));
     if (len <= 0) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "ASN1_item_i2d <= 0"); goto ret; }
     str.len = len;
-    val->len = ngx_base64_encoded_length(str.len);
-    if (!(val->data = ngx_pnalloc(r->pool, val->len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_pnalloc"); goto ret; }
-    ngx_encode_base64(val, &str);
-    rc = NGX_OK;
+    ngx_str_t val;
+    val.len = ngx_base64_encoded_length(str.len);
+    if (!(val.data = ngx_pnalloc(r->pool, val.len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_pnalloc"); goto ret; }
+    ngx_encode_base64(&val, &str);
+    v->len = val.len;
+    v->data = val.data;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
 ret:
     if (p7) PKCS7_free(p7);
-    if (in) BIO_free(in);
+    BIO_free(in);
     if (str.data) OPENSSL_free(str.data);
-    return rc;
+    return NGX_OK;
+}
+
+static char *ngx_http_sign_set_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+    ngx_str_t *value = cf->args->elts;
+    if (value[1].data[0] != '$') { return "invalid variable name"; }
+    value[1].len--;
+    value[1].data++;
+    ngx_http_variable_t *var = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_CHANGEABLE);
+    if (!var) { return NGX_CONF_ERROR; }
+    ngx_http_complex_value_t *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+    if (!cv) { return NGX_CONF_ERROR; }
+    ngx_http_compile_complex_value_t ccv;
+    ngx_memzero(&ccv, sizeof(ccv));
+    ccv.cf = cf;
+    ccv.value = &value[2];
+    ccv.complex_value = cv;
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) { return NGX_CONF_ERROR; }
+    var->get_handler = ngx_http_sign_variable;
+    var->data = (uintptr_t)cv;
+    return NGX_CONF_OK;
 }
 
 static ngx_command_t ngx_http_sign_commands[] = {
@@ -68,10 +95,10 @@ static ngx_command_t ngx_http_sign_commands[] = {
     .post = NULL },
   { .name = ngx_string("sign_set"),
     .type = NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
-    .set = ndk_set_var_value,
+    .set = ngx_http_sign_set_conf,
     .conf = NGX_HTTP_LOC_CONF_OFFSET,
     .offset = 0,
-    .post = &(ndk_set_var_t){ NDK_SET_VAR_VALUE, ngx_http_sign_func, 1, NULL } },
+    .post = NULL },
     ngx_null_command
 };
 
