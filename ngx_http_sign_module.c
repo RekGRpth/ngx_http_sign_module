@@ -22,19 +22,19 @@ static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_h
     ngx_http_sign_location_t *location = ngx_http_get_module_loc_conf(r, ngx_http_sign_module);
     if (!location->ssl) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!location->ssl"); return NGX_ERROR; }
     X509 *signcert = SSL_CTX_get0_certificate(location->ssl->ctx);
-    if (!signcert) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_ERROR; }
+    if (!signcert) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_certificate"); return NGX_ERROR; }
     EVP_PKEY *pkey = SSL_CTX_get0_privatekey(location->ssl->ctx);
-    if (!pkey) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_ERROR; }
+    if (!pkey) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_privatekey"); return NGX_ERROR; }
     STACK_OF(X509) *chain = NULL;
-    if (!SSL_CTX_get0_chain_certs(location->ssl->ctx, &chain)) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_chain_certs"); return NGX_ERROR; }
+    if (!SSL_CTX_get0_chain_certs(location->ssl->ctx, &chain)) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!SSL_CTX_get0_chain_certs"); return NGX_ERROR; }
     ngx_str_t str = ngx_null_string;
     BIO *in = BIO_new_mem_buf(v->data, v->len);
-    if (!in) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!BIO_new_mem_buf"); return NGX_ERROR; }
+    if (!in) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!BIO_new_mem_buf"); return NGX_ERROR; }
     PKCS7 *p7 = PKCS7_sign(signcert, pkey, chain, in, PKCS7_BINARY|PKCS7_DETACHED);
     ngx_int_t rc = NGX_ERROR;
-    if (!p7) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!PKCS7_sign"); goto ret; }
+    if (!p7) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "!PKCS7_sign"); goto ret; }
     int len = ASN1_item_i2d((ASN1_VALUE *)p7, &str.data, ASN1_ITEM_rptr(PKCS7));
-    if (len <= 0) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ASN1_item_i2d <= 0"); goto ret; }
+    if (len <= 0) { ngx_ssl_error(NGX_LOG_ERR, r->connection->log, 0, "ASN1_item_i2d <= 0"); goto ret; }
     str.len = len;
     if (!(val->len = ngx_base64_encoded_length(str.len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_base64_encoded_length"); goto ret; }
     if (!(val->data = ngx_pnalloc(r->pool, val->len))) { ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "!ngx_pnalloc"); goto ret; }
