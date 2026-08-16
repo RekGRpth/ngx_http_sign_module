@@ -41,7 +41,7 @@ static ngx_int_t ngx_http_sign_func(ngx_http_request_t *r, ngx_str_t *val, ngx_h
 ret:
     if (p7) PKCS7_free(p7);
     if (in) BIO_free(in);
-    if (str.data) free(str.data);
+    if (str.data) OPENSSL_free(str.data);
     return rc;
 }
 
